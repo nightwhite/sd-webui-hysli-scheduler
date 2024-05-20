@@ -235,7 +235,6 @@ class TaskRunner:
         return (named_args, script_args)
 
     def parse_task_args(self, task: Task, deserialization: bool = True):
-        # 确保 task.params 是一个字典
         if isinstance(task.params, str):
             parsed: Dict[str, Any] = json.loads(task.params)
         else:

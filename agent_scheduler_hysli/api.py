@@ -36,7 +36,7 @@ from .models import (
 from .task_runner import TaskRunner
 from .helpers import log, request_with_retry
 from .task_helpers import encode_image_to_base64, img2img_image_args_by_mode
-from concurrent.futures import ThreadPoolExecutor, as_completed  # 确保导入这个模块
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 
 def api_callback(callback_url: str, task_id: str, status: TaskStatus, images: List[str], s3_config: Dict):    
