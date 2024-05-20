@@ -26,6 +26,7 @@ class TaskModel(BaseModel):
     id: str = Field(title="Task Id")
     api_task_id: Optional[str] = Field(title="API Task Id", default=None)
     api_task_callback: Optional[str] = Field(title="API Task Callback", default=None)
+    s3_config: Optional[Dict[str, Any]] = Field(title="S3 Configuration", default=None)
     name: Optional[str] = Field(title="Task Name")
     type: str = Field(title="Task Type", description="Either txt2img or img2img")
     status: str = Field(
@@ -66,6 +67,11 @@ class Txt2ImgApiTaskArgs(StableDiffusionTxt2ImgProcessingAPI):
         None,
         title="Callback URL",
         description="The callback URL to send the result to.",
+    )
+    s3_config: Optional[Dict[str, Any]] = Field(
+        None,
+        title="S3 Configuration",
+        description="Configuration for S3 upload.",
     )
 
     class Config(StableDiffusionTxt2ImgProcessingAPI.__config__):
