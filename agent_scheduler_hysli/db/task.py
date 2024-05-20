@@ -2,7 +2,8 @@ import json
 import base64
 from enum import Enum
 from datetime import datetime, timezone
-from typing import Optional, Union, List, Dict
+from typing import Optional, Union, List, Dict, Any
+from sqlalchemy.types import JSON
 
 from sqlalchemy import (
     TypeDecorator,
@@ -17,6 +18,7 @@ from sqlalchemy import (
     func,
 )
 from sqlalchemy.orm import Session
+from pydantic import BaseModel, Field
 
 from .base import BaseTableManager, Base
 from ..models import TaskModel
@@ -46,17 +48,17 @@ class TaskStatus(str, Enum):
     FAILED = "failed"
     INTERRUPTED = "interrupted"
 
-
 class Task(TaskModel):
-    script_params: bytes = None
-    params: str
+    script_params: Optional[bytes] = None
+    s3_config: Optional[Dict] = None
 
     def __init__(self, **kwargs):
-        priority = kwargs.pop("priority", int(datetime.now(timezone.utc).timestamp() * 1000))
-        super().__init__(priority=priority, **kwargs)
-
-    class Config(TaskModel.__config__):
-        exclude = ["script_params"]
+        params = kwargs.get("params")
+        if isinstance(params, str):
+            kwargs["params"] = json.loads(params)
+        super().__init__(**kwargs)
+        if self.priority is None:
+            self.priority = int(datetime.now(timezone.utc).timestamp() * 1000)
 
     @staticmethod
     def from_table(table: "TaskTable"):
@@ -67,7 +69,7 @@ class Task(TaskModel):
             s3_config=table.s3_config,
             name=table.name,
             type=table.type,
-            params=table.params,
+            params=json.loads(table.params),
             script_params=table.script_params,
             priority=table.priority,
             status=table.status,
@@ -85,7 +87,7 @@ class Task(TaskModel):
             s3_config=self.s3_config,
             name=self.name,
             type=self.type,
-            params=self.params,
+            params=json.dumps(self.params),
             script_params=self.script_params,
             priority=self.priority,
             status=self.status,
@@ -93,16 +95,17 @@ class Task(TaskModel):
             bookmarked=self.bookmarked,
         )
 
+    @staticmethod
     def from_json(json_obj: Dict):
         return Task(
             id=json_obj.get("id"),
             api_task_id=json_obj.get("api_task_id", None),
             api_task_callback=json_obj.get("api_task_callback", None),
-            s3_config=table.s3_config,
+            s3_config=json_obj.get("s3_config", None),
             name=json_obj.get("name", None),
             type=json_obj.get("type"),
             status=json_obj.get("status", TaskStatus.PENDING),
-            params=json.dumps(json_obj.get("params")),
+            params=json_obj.get("params"),
             script_params=base64.b64decode(json_obj.get("script_params")),
             priority=json_obj.get("priority", int(datetime.now(timezone.utc).timestamp() * 1000)),
             result=json_obj.get("result", None),
@@ -120,7 +123,7 @@ class Task(TaskModel):
             "name": self.name,
             "type": self.type,
             "status": self.status,
-            "params": json.loads(self.params),
+            "params": self.params,
             "script_params": base64.b64encode(self.script_params).decode("utf-8"),
             "priority": self.priority,
             "result": self.result,
@@ -136,7 +139,7 @@ class TaskTable(Base):
     id = Column(String(64), primary_key=True)
     api_task_id = Column(String(64), nullable=True)
     api_task_callback = Column(String(255), nullable=True)
-    s3_config = Column(Dict, nullable=True)
+    s3_config = Column(JSON, nullable=True)
     name = Column(String(255), nullable=True)
     type = Column(String(20), nullable=False)  # txt2img or img2txt
     params = Column(Text, nullable=False)  # task args
@@ -285,7 +288,7 @@ class TaskManager(BaseTableManager):
         try:
             current = session.get(TaskTable, task.id)
             if current is None:
-                raise Exception(f"Task with id {id} not found")
+                raise Exception(f"Task with id {task.id} not found")
 
             session.merge(task.to_table())
             session.commit()

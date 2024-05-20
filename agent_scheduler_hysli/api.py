@@ -36,10 +36,36 @@ from .models import (
 from .task_runner import TaskRunner
 from .helpers import log, request_with_retry
 from .task_helpers import encode_image_to_base64, img2img_image_args_by_mode
+from concurrent.futures import ThreadPoolExecutor, as_completed  # 确保导入这个模块
 
 
-def api_callback(callback_url: str, task_id: str, status: TaskStatus, images: list, s3_config: dict):
-    if s3_config.get('enabled', False):
+def api_callback(callback_url: str, task_id: str, status: TaskStatus, images: List[str], s3_config: Dict):    
+    if s3_config['enabled']:
+        uploaded_images = []
+
+        def upload_image(img):
+            img_path = Path(img)
+            with open(img_path, "rb") as f:
+                image_data = f.read()
+                base64_image = "data:image/png;base64," + base64.b64encode(image_data).decode('utf-8')
+                return upload_to_s3(base64_image, s3_config, task_id)
+        
+        with ThreadPoolExecutor() as executor:
+            future_to_image = {executor.submit(upload_image, img): img for img in images}
+            for future in as_completed(future_to_image):
+                img_url = future.result()
+                if img_url:
+                    uploaded_images.append(img_url)
+
+        response = requests.post(
+            callback_url,
+            timeout=5,
+            json={"task_id": task_id, "status": status.value, "images": uploaded_images},
+        )
+        print("Callback response:", response.status_code, response.text)
+        return response
+    else:
+        print("Sending images directly")
         files = []
         for img in images:
             img_path = Path(img)
@@ -52,28 +78,14 @@ def api_callback(callback_url: str, task_id: str, status: TaskStatus, images: li
                 )
             )
 
-        return requests.post(
+        response = requests.post(
             callback_url,
             timeout=5,
-            data={"task_id": task_id, "status": status.value},
+            json={"task_id": task_id, "status": status.value},
             files=files,
         )
-    elif s3_config.get('enabled', True):
-        print(1)
-        images = []
-        for img in images:
-            img_path = Path(img)
-            with open(img_path, "rb") as f:
-                image_data = f.read()
-                base64_image = base64.b64encode(image_data)
-                img_url = upload_to_s3(base64_image, s3_config, task_id)
-                images.append(img_url)
-        
-        return requests.post(
-            callback_url,
-            timeout=5,
-            data={"task_id": task_id, "status": status.value, "images": images},
-        )
+        print("Callback response:", response.status_code, response.text)
+        return response
 
 def upload_to_s3(base64_image, s3_config, task_id):
     s3 = boto3.client(
@@ -84,7 +96,7 @@ def upload_to_s3(base64_image, s3_config, task_id):
         region_name=s3_config['region_name'],
     )
 
-    image_data = base64_image
+    image_data = base64.b64decode(base64_image.split(',')[1])
     current_timestamp = time.time()
     current_datetime = datetime.fromtimestamp(current_timestamp)
     formatted_date = current_datetime.strftime('%Y-%m-%d')
