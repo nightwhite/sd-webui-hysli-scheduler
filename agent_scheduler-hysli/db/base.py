@@ -14,7 +14,7 @@ if hasattr(shared.cmd_opts, "agent_scheduler_hysli_sqlite_file"):
     else:
         db_file = os.path.abspath(shared.cmd_opts.agent_scheduler_hysli_sqlite_file)
 else:
-    db_file = os.path.join(scripts.basedir(), "task_scheduler.sqlite3")
+    db_file = os.path.join(scripts.basedir(), "task_scheduler_hysli.sqlite3")
 
 print(f"Using sqlite file: {db_file}")
 
