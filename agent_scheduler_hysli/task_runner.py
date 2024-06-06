@@ -62,7 +62,7 @@ class ParsedTaskArgs(BaseModel):
     script_args: List[Any]
     checkpoint: Optional[str] = None
     vae: Optional[str] = None
-
+    callback_url: Optional[str] = None
 
 class TaskRunner:
     instance = None
@@ -265,6 +265,7 @@ class TaskRunner:
             script_args=script_args,
             checkpoint=checkpoint,
             vae=vae,
+            callback_url=task.api_task_callback,
         )
 
     def register_ui_task(
@@ -307,6 +308,7 @@ class TaskRunner:
         args: Dict,
         checkpoint: str = None,
         vae: str = None,
+        callback_url: str = None,
     ):
         progress.add_task_to_queue(task_id)
 
@@ -319,6 +321,7 @@ class TaskRunner:
             type=task_type,
             params=params,
             script_params=script_params,
+            callback_url=callback_url,
         )
         task_manager.add_task(task)
 
@@ -335,8 +338,6 @@ class TaskRunner:
             if progress.current_task is None:
                 task_id = task.id
                 is_img2img = task.type == "img2img"
-                log.info(f"[AgentSchedulerHysli] Executing task {task_id}")
-
                 task_args = self.parse_task_args(task)
                 task_meta = {
                     "is_img2img": is_img2img,
@@ -449,6 +450,7 @@ class TaskRunner:
                 task_id,
                 is_img2img,
                 script_args=task_args.script_args,
+                callback_url=task_args.callback_url,
                 **task_args.named_args,
             )
 
@@ -477,8 +479,31 @@ class TaskRunner:
 
             return res
 
-    def __execute_api_task(self, task_id: str, is_img2img: bool, **kwargs):
+    def __execute_api_task(self, task_id: str, is_img2img: bool,callback_url: str, **kwargs):
         progress.start_task(task_id)
+
+        log.info(f"[AgentSchedulerHysli] __execute_ui_task callback_url {callback_url}")
+
+        # 初始化 shared.state.time_start
+        shared.state.time_start = time.time()
+
+        class SimpleNamespace:
+            def __init__(self, **kwargs):
+                self.__dict__.update(kwargs)
+
+        def query_process_every_second():
+            while not stop_event.is_set():
+                req = SimpleNamespace(id_task=task_id, id_live_preview=-1)
+                res = progress.progressapi(req)
+                # log.info(f"[AgentSchedulerHysli] query_process_every_second result {res.progress}")
+                #  to do  进度通知回调
+                time.sleep(1)
+
+        stop_event = threading.Event()
+        print_thread = threading.Thread(target=query_process_every_second)
+
+        # Start the printing thread
+        print_thread.start()
 
         res = None
         try:
@@ -495,6 +520,9 @@ class TaskRunner:
                 res = e
         finally:
             progress.finish_task(task_id)
+            # Stop the printing thread
+            stop_event.set()
+            print_thread.join()
 
         return res
 
